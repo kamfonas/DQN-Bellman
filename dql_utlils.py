@@ -73,8 +73,6 @@ def runprep(RUNFILE,RUNSTEM,symbol=''):
         os.makedirs(RUNPATH)  
     
     shutil.copy(RUNFILE,RUNPATH)
-    shutil.copy('envs/gymStockEnvC2.py',RUNPATH)
-    shutil.copy('dqn_linear3H.py',RUNPATH)
     shutil.copy('config_'+RUNSTEM+'.ini',RUNPATH)    
     return RUNNAME,RUNPATH
 
