@@ -1,0 +1,317 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov 16 10:41:45 2020
+
+@author: mjkam
+"""
+import importlib
+importlib.invalidate_caches()
+
+import gym
+from datetime import datetime
+
+import torch
+from torch import optim
+import numpy as np
+import random
+import configparser as cfg
+
+import matplotlib.pyplot as plt
+
+# Uncomment one of the dqn_linearNH below to try various depth DQNs
+#from dqn_linear1H import DQN # 1-layer DQN
+#from dqn_linear2H import DQN # 2-layer DQN
+#from dqn_linear3H import DQN # 3-layer DQN 
+
+from dql_utlils import check_cuda,calculate_epsilon,parse_name,runprep,bellman_expansion
+
+# read/parse configuration file 
+RUNFILE,RUNSTEM = parse_name(__file__)
+print('Using configuration file: '+'config_'+RUNSTEM+'.ini')
+config = cfg.ConfigParser()
+config.read('config_'+RUNSTEM+'.ini')
+
+DQN_IMPORT_LIBRARY=str(config['DQN']['DQN_IMPORT_LIBRARY'])
+DQN = importlib.import_module(DQN_IMPORT_LIBRARY)
+OFFSET = int(config['DQN']['OFFSET'])
+USE_CUDA=int(config['PROCESSING']['USE_CUDA'])
+
+NUMBER_OF_TRAIN_EPISODES = int(config['PROCESSING']['NUMBER_OF_TRAIN_EPISODES']) 
+EPISODE_LENGTH = int(config['PROCESSING']['EPISODE_LENGTH'])
+MAX_STEPS = int(config.get('PROCESSING','MAX_STEPS',
+                           fallback=EPISODE_LENGTH))
+print('MAX_STEPS:',MAX_STEPS)
+ENV_NAME = str(config['ENVIRONMENT']['ENV_NAME'])
+ENV_ENTRY_POINT = str(config['ENVIRONMENT']['ENV_ENTRY_POINT']) 
+
+HIDDEN_LAYER_SIZE = list(map(int, config['DQN']['HIDDEN_LAYERS_SIZE'].split(',')))
+DROPOUT = float(config['DQN']['DROPOUT'])
+
+REPLAY_BUFFER_SIZE = int(config['EXPERIENCE_REPLAY']['REPLAY_BUFFER_SIZE'])
+BATCH_SIZE = int(config['EXPERIENCE_REPLAY']['BATCH_SIZE'])
+DISCOUNT_FACTOR = float(config['OPTIMIZATION']['DISCOUNT_FACTOR'])
+UPDATE_TARGET_FREQUENCY = int(config['OPTIMIZATION']['UPDATE_TARGET_FREQUENCY'])
+
+#OFFSET = 1+int(BATCH_SIZE>UPDATE_TARGET_FREQUENCY)
+
+RUNNAME,RUNPATH = runprep(RUNFILE,RUNSTEM,'BELLMAN')
+
+
+### Check if available, and setup CUDA device
+device = check_cuda(USE_CUDA)
+
+### Experience Replay class
+class ExperienceReplay(object):
+    def __init__(self , capacity):
+        
+        self.capacity = capacity
+        self.buffer = []
+        self.pointer = 0
+    
+    def push(self , state, action, new_state, reward, done):
+        experience = (state, action, new_state, reward, done)
+        
+        if self.pointer >= len(self.buffer):
+            self.buffer.append(experience)
+        else:
+            self.buffer[self.pointer] = experience
+        
+        self.pointer = (self.pointer + 1) % self.capacity
+        
+    def sample(self , batch_size):
+#        return zip(*[self.buffer[75]]+random.sample(self.buffer , batch_size))
+        return zip(*random.sample(self.buffer , batch_size))
+    
+    def __len__(self):
+        return len(self.buffer)  
+
+### Instantiate the ExperienceReplay
+memory = ExperienceReplay(REPLAY_BUFFER_SIZE)
+
+### Build the brain of the network i.e. the DQN Agent
+
+class DQN_Agent(object):
+    def __init__(self,number_of_states,number_of_actions):
+        
+        self.dqn = DQN.DQN(HIDDEN_LAYER_SIZE,number_of_states,number_of_actions,DROPOUT).to(device)
+        self.target_dqn = DQN.DQN(HIDDEN_LAYER_SIZE,number_of_states,number_of_actions,DROPOUT).to(device)
+        self.criterion = torch.nn.MSELoss()
+        self.optimizer = optim.Adam(params=self.dqn.parameters())     
+        self.target_dqn_update_counter = 0
+        
+    
+    def select_action(self,state,EGREEDY,env):
+        
+        random_for_egreedy = torch.rand(1)[0]
+        
+        if random_for_egreedy > EGREEDY:      
+            
+            with torch.no_grad():
+                
+                state = torch.Tensor(state).to(device)
+                q_values = self.dqn(state)
+                action = torch.max(q_values,0)[1]
+                action = action.item() 
+        else:
+            action = env.action_space.sample()       
+        return action
+    
+    def optimize(self):
+        batch_size = min(BATCH_SIZE, len(memory))
+        state, action, new_state, reward, done = memory.sample(batch_size)
+        
+        state = torch.Tensor(state).to(device) # remove dim 1
+        new_state = torch.Tensor(new_state).to(device)
+        reward = torch.Tensor(reward).to(device)
+        action = torch.LongTensor(action).to(device)
+        done = torch.Tensor(done).to(device)
+        
+        # Find the max Q-value for each new state in the batch: 
+        # First determine the actions : 
+        #   get Q-values for all possible actions from the new states  
+        #   Use the policy dqn 
+        new_state_actions = self.dqn(new_state).detach()
+        # the following returns the indexes pointing to max Q-value
+        # for each member of the batch. This index denotes the action
+        # which has the highest Q-value and thus is optimal
+        max_new_state_actions = torch.max(new_state_actions, 1)[1] 
+        
+        
+        # Using the best action for each of the batch members that was
+        # derived from the policy DQN above, now use the target DQN to 
+        # find all Q-value for these actions stemming from each new state 
+        new_state_Q_values = self.target_dqn(new_state).detach()
+        # find the highest Q-value for each (new state,action) pair
+        max_new_state_values = new_state_Q_values.gather(1, max_new_state_actions.unsqueeze(1)).squeeze(1)
+        
+        
+        target_value = reward + (1 - done) * DISCOUNT_FACTOR * max_new_state_values #when done = 1 then target = reward
+        predicted_value = self.dqn(state).gather(1, action.unsqueeze(1)).squeeze(1)
+        
+        loss = self.criterion(predicted_value, target_value)        
+
+        self.optimizer.zero_grad()
+
+        loss.backward() 
+        
+        self.optimizer.step()
+        
+        if self.target_dqn_update_counter % UPDATE_TARGET_FREQUENCY == 0:
+            self.target_dqn.load_state_dict(self.dqn.state_dict())
+        
+        self.target_dqn_update_counter += 1
+        t_mu=target_value.mean().item()
+        t_std=target_value.std().item()
+        p_mu=predicted_value.mean().item()
+        p_std=predicted_value.std().item()
+        return loss.item(),t_mu,t_std,p_mu,p_std              
+         
+### Run the episode loop
+
+def train(dqn_agent,env):
+    N=NUMBER_OF_TRAIN_EPISODES*EPISODE_LENGTH//UPDATE_TARGET_FREQUENCY
+    Qt = bellman_expansion(DISCOUNT_FACTOR,N,0.5)[OFFSET:]
+    Qt =  [e for s in [[i]*UPDATE_TARGET_FREQUENCY for i in Qt] for e in s]
+    Qt  = np.array(Qt).reshape([-1,1])
+    print(Qt.shape)
+    losses = []        
+    steps_counter = 0
+    start_time = datetime.now()
+    L=0
+    for episode in range(NUMBER_OF_TRAIN_EPISODES):
+        state = env.reset()
+        done = False
+        episode_rewards = 0
+        step = 0
+        steploss = []
+        steplossIx = []
+        step_tgt_mu = []
+        step_tgt_std = []
+        step_pr_mu = []
+        step_pr_std = []
+        for i in range(MAX_STEPS):
+            step += 1
+            steps_counter += 1
+            
+            epsilon = calculate_epsilon(steps_counter)
+    
+            # We always pick the one and only action available
+            action = 0 
+            # In a normal DQL the action is selected as follows. 
+            # >> dqn_agent.select_action(state, epsilon,env)
+                
+            new_state, reward, done, info = env.step(np.array([action]) )
+    
+            episode_rewards += reward 
+            memory.push(state, action, new_state, reward, done)
+            
+            loss1,t_mu,t_std,p_mu,p_std = dqn_agent.optimize()
+            if loss1 != None:
+                steploss.append(loss1)
+                steplossIx.append(i)
+                step_tgt_mu.append(t_mu)
+                step_tgt_std.append(t_std)
+                step_pr_mu.append(p_mu)
+                step_pr_std.append(p_std)
+            if done:
+                print('E%03d >>> eps:%0.4f lr:%0.6f [%s]' % \
+                       (episode,epsilon,\
+                       dqn_agent.optimizer.param_groups[0]['lr'],
+                       datetime.now()))
+    
+                #print('done:',episode,i,step,)    plt.figure(figsize=(12,5))
+                losses.append(sum(steploss))
+                mu = np.mean(steploss)
+                sd = np.std(steploss)
+                filePath = RUNPATH+"/E%04.0d_lossPerStep.png" % episode
+                plt.title("Episode %3d Loss per Step (%d)"% (episode,len(steploss)))
+                plt.xlabel('Steps')
+                plt.ylabel('Loss')
+                plt.axhspan(mu-sd,mu+sd,alpha=0.2)
+                plt.hlines(y=mu,xmin=0,xmax=len(steploss), color='red')
+                plt.plot(steploss,alpha=0.5)
+                plt.savefig(filePath)
+                plt.show()
+                plt.close()
+                
+                x = Qt[L:steps_counter]
+                L = steps_counter+1 
+                filePath = RUNPATH+"/E%04.0d_PredPerStep.png" % \
+                    episode
+                plt.title("Episode %3d Avg Target/Prediction Values by Step"% (episode))
+                plt.xlabel('Steps')
+                plt.ylabel('Value')
+                plt.grid(True)
+                plt.hlines(y=0,xmin=0,xmax=len(steploss), color='gray')
+                plt.plot(step_pr_mu,alpha=0.7,label="Policy")
+                plt.plot(step_tgt_mu,alpha=0.5,label="Target")
+                plt.plot(x,alpha=0.5,label="Theoretical")
+                #plt.hist(x, L, histtype='step', stacked=True, fill=False, color = 'gray')
+                plt.legend(loc='right')
+                plt.savefig(filePath)
+                plt.show()
+                plt.close()
+
+                break
+            
+    ### Print average rewards and plot  
+    print("Episode Process started at %s and ended at %s" % \
+          (start_time, datetime.now()))
+    print("Episodes processed", episode+1)   
+   
+    filePath = RUNPATH+"/account_value.png"
+    
+    filePath = RUNPATH+"/losses.png" 
+    plt.title("Episode Losses")
+    plt.xlabel('Steps')
+    plt.ylabel('Loss')
+    plt.plot(losses)
+    plt.savefig(filePath)
+    plt.show()
+    plt.close()
+    
+def main():
+    ### Gym Envioronment setup
+    if ENV_NAME in gym.envs.registry.env_specs:
+        del gym.envs.registry.env_specs[ENV_NAME]
+        print('removed', ENV_NAME)
+    if ENV_NAME not in gym.envs.registry.env_specs:
+        gym.register(id=ENV_NAME,
+                     entry_point=ENV_ENTRY_POINT,
+                     max_episode_steps=MAX_STEPS,
+                     #reward_threshold=90.0,
+                     )
+        print('registered',gym.envs.registry.env_specs[ENV_NAME])
+    env = gym.make(ENV_NAME,episode_length=EPISODE_LENGTH)
+    number_of_states = env.observation_space.shape[0] # for box space
+    number_of_actions = env.action_space.n            # for discree space
+    # Show total number of states and actions
+    print('-------------------------------------------')
+    print('start at:',datetime.now())
+    print('-------------------------------------------')
+    print('Hyperparameters:')
+    print('-------------------------------------------')
+    print('DQN import library:',DQN_IMPORT_LIBRARY)
+    print('Hidden layer units',HIDDEN_LAYER_SIZE )
+    print('Number of episodes:',NUMBER_OF_TRAIN_EPISODES)
+    print('Episode Length (steps):', EPISODE_LENGTH)
+    print('Discount factor:', DISCOUNT_FACTOR)
+    print('Update target frequency:',UPDATE_TARGET_FREQUENCY)
+    print('Batch size:',BATCH_SIZE)
+    #print('E-greedy post-decay length:',EGREEDY_POST_DECAY)
+    ### Instantiate the DQN Agent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+    dqn_agent = DQN_Agent(number_of_states,number_of_actions)
+    
+    # Fetching the number of states and actions
+
+    print('------------------')
+    print('--Begin Training--')
+    print('------------------')
+    print('Total number of State items : {}'.format(number_of_states)) 
+    print('Total number of Actions : {}'.format(number_of_actions))
+    print()
+    train(dqn_agent,env)
+
+if __name__ == '__main__':
+    main()
+    
