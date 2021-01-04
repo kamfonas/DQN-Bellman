@@ -132,4 +132,4 @@ dmypy.json
 
 ~*
 results/*
-./doc
+doc/*.pptx
