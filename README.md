@@ -33,36 +33,30 @@ The configuration parameters of relevance are described below:
 
 <dt>EGREEDY Section</dt>
   <dd><dl>
-EPSILON=0.0
-EPSILON_FINAL=0.00
-DECAY_STEPS=1
-EGREEDY_TAIL = 5
+<dt>EPSILON</dt> <dd>Probability threshold above which exploration is forced in selecting alpha. E.g.  0.0</dd>
+<dt>EPSILON_FINAL</dt> <dd> The final value of EPSILON used during exploitation. E.g. 0.00</dd>
+<dt>DECAY_STEPS</dt> <dd> Number of steps over which the decay occurs. </dd>
+<dt>EGREEDY_TAIL</dt> <dd>The number of training episodes after the decay and into exploitation mode. It is used to report episode loss after the exploration is completed</dd>
     </dl></dd>
 
 
-[ENVIRONMENT]
+<dt>ENVIRONMENT</dt>
   <dd><dl>
-ENV_NAME = RandEnvR1-v1
-ENV_ENTRY_POINT = envs.gymRandMeanEnv1R2:RandEnvR1
+<dt>ENV_NAME</dt> <dd>The name in the form RandEnvR1-v1 used by gym to register environments</dd>
+<dt>ENV_ENTRY_POINT</dt> = <dd>The gym-required environment entry point used in the registration to find the actual source file and class, e.g. envs.gymRandMeanEnv1R2:RandEnvR1</dd>
     </dl></dd>
 
-[EXPERIENCE_REPLAY]
+<dt>EXPERIENCE_REPLAY</dt>
   <dd><dl>
-REPLAY_BUFFER_SIZE=5000
-BATCH_SIZE = 1000
+<dt>REPLAY_BUFFER_SIZE</dt> <dd>An integer denoting the length of the experience replay buffer.</dd>
+<dt>BATCH_SIZE</dt> <dd>The number of experiences in a minibatch sample used for training the DQN</dd>
     </dl></dd>
 
-[OPTIMIZATION]
+<dt>DQN</dt>
   <dd><dl>
-DISCOUNT_FACTOR = 0.8
-UPDATE_TARGET_FREQUENCY = 1
-    </dl></dd>
-
-[DQN]
-  <dd><dl>
-DQN_IMPORT_LIBRARY=dqn_linear3H
-HIDDEN_LAYERS_SIZE=5,5,5
-DROPOUT = 0.2
-OFFSET = 1
+<dt>DQN_IMPORT_LIBRARY</dt> <dd>The name of the DQN file with the definition of the DQN to be used. e.g. dqn_linear3H</dd>
+<dt>HIDDEN_LAYERS_SIZE</dt> <dd>Comma separated integers denoting the number of units in each hidden layer. e.g. 5,5,5</dd>
+<dt>DROPOUT</dt> <dd> A value between 0 and 1 that denotes the ratio of dropout units, e.g. 0.2 </dd>
+<dt>OFFSET</dt> <dd>By default 1. This is an offset used in plotting the theoretical series of Q-values generated from the value of gamma. </dd>
     </dl></dd>
 </dl>
