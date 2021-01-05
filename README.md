@@ -43,7 +43,7 @@ The configuration parameters of relevance are described below:
 <dt>ENVIRONMENT</dt>
   <dd><dl>
 <dt>ENV_NAME</dt> <dd>The name in the form RandEnvR1-v1 used by gym to register environments</dd>
-<dt>ENV_ENTRY_POINT</dt> = <dd>The gym-required environment entry point used in the registration to find the actual source file and class, e.g. envs.gymRandMeanEnv1R2:RandEnvR1</dd>
+<dt>ENV_ENTRY_POINT</dt><dd>The gym-required environment entry point used in the registration to find the actual source file and class, e.g. envs.gymRandMeanEnv1R2:RandEnvR1</dd>
     </dl></dd>
 
 <dt>EXPERIENCE_REPLAY</dt>
