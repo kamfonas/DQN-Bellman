@@ -10,7 +10,7 @@ In our trivial environment with only one action and the expected value of the re
 
   Q_1 = r * (gamma^0 + gamma^1)
 
-  Q_2 = r * (gamma^0 + \gamma^1 + \gamma^2
+  Q_2 = r * (gamma^0 + gamma^1 + gamma^2
 
   Q_k = r + sum_{i=0}^{k} * gamma^i
 
