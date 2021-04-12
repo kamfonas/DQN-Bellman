@@ -12,7 +12,7 @@ In our trivial environment with only one action and the expected value of the re
 
   Q_2 = r * (gamma^0 + gamma^1 + gamma^2
 
-  Q_k = r + sum_{i=0}^{k}[gamma^i]
+  Q_k = r + sum(gamma^i)  where i ranges from 0 to k
 
 # The Code
 
