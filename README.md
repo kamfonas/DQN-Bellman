@@ -6,13 +6,13 @@ The Bellman equation is a tail recursive function that calculates the Q-value as
 
 In our trivial environment with only one action and the expected value of the reward consistently at 0.5, we can simplify the Bellman equation to: <img src="https://render.githubusercontent.com/render/math?math=Q_t \= r %2B \gamma Q_{t%2B1}">.  By unraveling the recursion and viewing it as an iteration, we get:
 
-> <img src="https://render.githubusercontent.com/render/math?math=Q_0\=r\gamma^0">
+<img src="https://render.githubusercontent.com/render/math?math=Q_0\=r\gamma^0">
 
-> <img src="https://render.githubusercontent.com/render/math?math=Q_1\=r(\gamma^0%2B\gamma^1)">
+<img src="https://render.githubusercontent.com/render/math?math=Q_1\=r(\gamma^0%2B\gamma^1)">
 
-> <img src="https://render.githubusercontent.com/render/math?math=Q_2\=r(\gamma^0 %2B\gamma^1%2B\gamma^2)">
+<img src="https://render.githubusercontent.com/render/math?math=Q_2\=r(\gamma^0 %2B\gamma^1%2B\gamma^2)">
 
-> <img src="https://render.githubusercontent.com/render/math?math=Q_k\=r\sum_{i=0}^{k}\gamma^i">
+<img src="https://render.githubusercontent.com/render/math?math=Q_k\=r\sum_{i=0}^{k}\gamma^i">
 
 # The Code
 
